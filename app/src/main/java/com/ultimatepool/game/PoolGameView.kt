@@ -68,7 +68,7 @@ class PoolGameView(context: Context) : View(context) {
     }
 
     private fun drawTable(c: Canvas) {
-        paint.shader=LinearGradient(table.left,table.top,table.right,table.bottom,Color.rgb(20,130,82),Color.rgb(5,68,44),Shader.TileMode.CLAMP)
+        paint.shader=LinearGradient(table.left,table.top,table.right,table.bottom,Color.rgb(29,160,101),Color.rgb(5,91,61),Shader.TileMode.CLAMP)
         c.drawRoundRect(table,12f,12f,paint); paint.shader=null
         paint.color=Color.rgb(5,24,18); paint.style=Paint.Style.STROKE; paint.strokeWidth=2f
         c.drawRoundRect(table,12f,12f,paint); paint.style=Paint.Style.FILL
@@ -87,42 +87,111 @@ class PoolGameView(context: Context) : View(context) {
     private fun toY(y:Float)=table.top+y*table.height()
 
     private fun drawBalls(c: Canvas) {
-        val r=ballPx()
-        for(b in balls.filter{!it.sunk}.sortedBy{it.y}) {
-            val x=toX(b.x); val y=toY(b.y)
-            paint.color=Color.argb(95,0,0,0); c.drawOval(x-r*.8f,y+r*.65f,x+r*.95f,y+r*1.25f,paint)
-            paint.shader=RadialGradient(x-r*.32f,y-r*.38f,r*1.55f,intArrayOf(Color.WHITE,b.color,Color.BLACK),floatArrayOf(0f,.72f,1f),Shader.TileMode.CLAMP)
+        val r = ballPx()
+        for (b in balls.filter { !it.sunk }.sortedBy { it.y }) {
+            val x = toX(b.x); val y = toY(b.y)
+            paint.shader = RadialGradient(x, y + r*.55f, r*1.5f,
+                intArrayOf(Color.argb(145,0,0,0), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+            c.drawOval(x-r*1.25f,y+r*.35f,x+r*1.25f,y+r*1.45f,paint)
+            paint.shader = null
+
+            val base = b.color
+            val dark = if (b.number == 0) Color.rgb(165,172,180) else Color.rgb(
+                (Color.red(base)*.32f).toInt(), (Color.green(base)*.32f).toInt(), (Color.blue(base)*.32f).toInt())
+            val bright = Color.rgb(
+                (Color.red(base)+(255-Color.red(base))*.42f).toInt(),
+                (Color.green(base)+(255-Color.green(base))*.42f).toInt(),
+                (Color.blue(base)+(255-Color.blue(base))*.42f).toInt())
+            paint.shader = RadialGradient(x-r*.36f,y-r*.43f,r*1.55f,
+                intArrayOf(Color.WHITE,bright,base,dark),floatArrayOf(0f,.18f,.62f,1f),Shader.TileMode.CLAMP)
             c.drawCircle(x,y,r,paint); paint.shader=null
-            if(b.number>0) {
-                paint.color=Color.WHITE; c.drawCircle(x,y,r*.40f,paint)
-                paint.color=Color.DKGRAY; paint.textAlign=Paint.Align.CENTER; paint.textSize=r*.55f; paint.typeface=Typeface.DEFAULT_BOLD
+
+            if (b.number in 9..15) {
+                val save=c.save()
+                val clip=Path().apply { addCircle(x,y,r*.99f,Path.Direction.CW) }
+                c.clipPath(clip)
+                paint.shader=LinearGradient(x,y-r*.32f,x,y+r*.32f,
+                    Color.rgb(255,255,255),Color.rgb(215,222,230),Shader.TileMode.CLAMP)
+                c.drawRect(x-r,y-r*.32f,x+r,y+r*.32f,paint)
+                paint.shader=null; c.restoreToCount(save)
+            }
+            paint.color=Color.argb(210,255,255,255); paint.style=Paint.Style.STROKE
+            paint.strokeWidth=max(1.4f,r*.06f); c.drawCircle(x,y,r*.98f,paint); paint.style=Paint.Style.FILL
+            paint.shader=RadialGradient(x-r*.39f,y-r*.47f,r*.42f,
+                intArrayOf(Color.argb(245,255,255,255),Color.argb(0,255,255,255)),null,Shader.TileMode.CLAMP)
+            c.drawCircle(x-r*.3f,y-r*.34f,r*.34f,paint); paint.shader=null
+
+            if (b.number>0) {
+                paint.color=Color.WHITE; c.drawCircle(x,y,r*.41f,paint)
+                paint.color=Color.rgb(18,24,31); paint.textAlign=Paint.Align.CENTER
+                paint.textSize=r*(if(b.number>=10) .48f else .58f)
+                paint.typeface=Typeface.create("sans-serif",Typeface.BOLD)
                 c.drawText(b.number.toString(),x,y+r*.19f,paint)
-            } else { paint.color=Color.argb(110,255,255,255); c.drawCircle(x-r*.35f,y-r*.4f,r*.16f,paint) }
+            }
         }
     }
 
     private fun drawAim(c: Canvas) {
         val cue=balls.firstOrNull{it.number==0 && !it.sunk} ?: return
         if(!playerTurn || isMoving()) return
-        val x=toX(cue.x); val y=toY(cue.y); val len=hypot(aimX,aimY).coerceAtLeast(.001f)
+        val x=toX(cue.x); val y=toY(cue.y)
+        val len=hypot(aimX,aimY).coerceAtLeast(.001f)
         val ux=aimX/len; val uy=aimY/len
-        paint.color=Color.argb(170,255,255,255); paint.strokeWidth=2f; paint.pathEffect=DashPathEffect(floatArrayOf(9f,8f),0f)
-        c.drawLine(x,y,x+ux*table.width()*.34f,y+uy*table.height()*.34f,paint); paint.pathEffect=null
-        val back=ballPx()*2.6f+power*table.width()*.10f
-        paint.color=Color.rgb(190,135,75); paint.strokeWidth=ballPx()*.32f
-        c.drawLine(x-ux*back,y-uy*back,x-ux*ballPx()*1.2f,y-uy*ballPx()*1.2f,paint)
+        val lineLen=table.width()*.36f
+        val ex=x+ux*lineLen; val ey=y+uy*lineLen
+
+        // Bright directional dashed guide with a clear arrow head.
+        paint.color=Color.argb(235,255,255,255); paint.strokeWidth=3.2f
+        paint.pathEffect=DashPathEffect(floatArrayOf(15f,10f),0f)
+        c.drawLine(x+ux*ballPx(),y+uy*ballPx(),ex,ey,paint)
+        paint.pathEffect=null
+        val ah=ballPx()*.78f
+        val perpX=-uy; val perpY=ux
+        val arrow=Path().apply {
+            moveTo(ex,ey)
+            lineTo(ex-ux*ah+perpX*ah*.58f,ey-uy*ah+perpY*ah*.58f)
+            lineTo(ex-ux*ah-perpX*ah*.58f,ey-uy*ah-perpY*ah*.58f)
+            close()
+        }
+        paint.color=Color.rgb(255,238,120); c.drawPath(arrow,paint)
+
+        // Cue stick follows the opposite direction.
+        val back=ballPx()*2.7f+power*table.width()*.12f
+        paint.color=Color.rgb(245,190,112); paint.strokeWidth=ballPx()*.34f
+        c.drawLine(x-ux*back,y-uy*back,x-ux*ballPx()*1.15f,y-uy*ballPx()*1.15f,paint)
+        paint.color=Color.argb(210,255,245,220); paint.strokeWidth=2f
+        c.drawLine(x-ux*back,y-uy*back,x-ux*back*.82f,y-uy*back*.82f,paint)
     }
 
     private fun drawHud(c: Canvas) {
-        paint.color=Color.WHITE; paint.textSize=heightF*.045f; paint.typeface=Typeface.create("sans-serif-medium",Typeface.BOLD)
-        paint.textAlign=Paint.Align.LEFT; c.drawText("ULTIMATE POOL",table.left,table.top*.62f,paint)
-        paint.textSize=heightF*.027f; paint.typeface=Typeface.DEFAULT
+        paint.color=Color.WHITE; paint.textSize=heightF*.045f
+        paint.typeface=Typeface.create("sans-serif",Typeface.BOLD)
+        paint.textAlign=Paint.Align.LEFT
+        c.drawText("ULTIMATE POOL",table.left,table.top*.62f,paint)
+        paint.textSize=heightF*.025f; paint.typeface=Typeface.DEFAULT
         c.drawText(if(playerTurn) "玩家回合" else "电脑回合",table.left,table.bottom+heightF*.075f,paint)
-        paint.textAlign=Paint.Align.RIGHT; c.drawText(message,table.right,table.bottom+heightF*.075f,paint)
-        val bx=table.left; val by=heightF*.94f; val bw=table.width()*.30f
-        paint.color=Color.DKGRAY; c.drawRoundRect(bx,by,bx+bw,by+9f,6f,6f,paint)
-        paint.color=Color.rgb(245,180,60); c.drawRoundRect(bx,by,bx+bw*power,by+9f,6f,6f,paint)
-        paint.textAlign=Paint.Align.LEFT; paint.textSize=heightF*.022f; c.drawText("击球力度",bx,by-8f,paint)
+        paint.textAlign=Paint.Align.RIGHT
+        c.drawText(message,table.right,table.bottom+heightF*.075f,paint)
+
+        // Power bar: red -> amber -> green bands, with a moving level marker.
+        val bx=table.left; val by=heightF*.94f; val bw=table.width()*.42f; val bh=max(12f,heightF*.018f)
+        paint.color=Color.argb(160,0,0,0)
+        c.drawRoundRect(bx-3f,by-3f,bx+bw+3f,by+bh+3f,bh*.5f,bh*.5f,paint)
+        paint.shader=LinearGradient(bx,by,bx+bw,by,
+            intArrayOf(Color.rgb(230,48,45),Color.rgb(255,183,42),Color.rgb(93,220,92)),
+            floatArrayOf(0f,.55f,1f),Shader.TileMode.CLAMP)
+        c.drawRoundRect(bx,by,bx+bw,by+bh,bh*.5f,bh*.5f,paint)
+        paint.shader=null
+        val markerX=bx+bw*power
+        paint.color=Color.WHITE; paint.style=Paint.Style.STROKE; paint.strokeWidth=3f
+        c.drawLine(markerX,by-5f,markerX,by+bh+5f,paint); paint.style=Paint.Style.FILL
+        paint.color=Color.WHITE; paint.textAlign=Paint.Align.LEFT
+        paint.textSize=heightF*.022f
+        c.drawText("击球力度  "+(power*100).roundToInt()+"%",bx,by-9f,paint)
+        paint.textAlign=Paint.Align.RIGHT
+        c.drawText("低",bx+bw+4f,by+bh+heightF*.025f,paint)
+        paint.textAlign=Paint.Align.LEFT
+        c.drawText("高",bx+bw-18f,by+bh+heightF*.025f,paint)
     }
 
     private fun updatePhysics(dt:Float):Boolean {
