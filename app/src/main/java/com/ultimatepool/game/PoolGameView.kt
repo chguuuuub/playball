@@ -9,7 +9,7 @@ import android.view.View
 import kotlin.math.*
 
 private data class Ball(var x: Float, var y: Float, var vx: Float, var vy: Float, val number: Int, var sunk: Boolean = false) {
-    val radius get() = 0.022f
+    val radius get() = 0.034f
     val color: Int get() = when(number) {
         0 -> Color.WHITE
         1,9 -> Color.rgb(255,220,0); 2,10 -> Color.rgb(0,92,255); 3,11 -> Color.rgb(255,18,28)
@@ -21,7 +21,7 @@ private data class Ball(var x: Float, var y: Float, var vx: Float, var vy: Float
 
 class PoolGameView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sound = ToneGenerator(AudioManager.STREAM_MUSIC, 78)
+    private val sound = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
     private val balls = mutableListOf<Ball>()
     private var widthF = 1f
     private var heightF = 1f
@@ -41,10 +41,20 @@ class PoolGameView(context: Context) : View(context) {
     private fun resetRack() {
         balls.clear()
         balls.add(Ball(.24f,.50f,0f,0f,0))
-        val order = listOf(1,9,2,10,8,3,11,4,12,5,13,6,14,7,15)
+        // Regulation-style 15-ball rack: five rows, equal ball spacing and 60-degree sides.
+        // The 8-ball is centered; the two rear corners contain one solid and one stripe.
+        val order = listOf(1,9,2,3,8,10,11,4,12,5,6,13,7,14,15)
+        val minSide = min(table.width().takeIf { it > 1f } ?: 720f,
+                          table.height().takeIf { it > 1f } ?: 360f)
+        val radiusPx = minSide*.034f
+        val rowStepX = sqrt(3f)*radiusPx
+        val rowStepY = 2f*radiusPx
+        val apexX = .79f
         var k = 0
         for (row in 0..4) for (col in 0..row) {
-            balls.add(Ball(.69f + row*.043f,.50f + (col-row/2f)*.047f,0f,0f,order[k++]))
+            val px = apexX - row*rowStepX/(table.width().takeIf { it > 1f } ?: 720f)
+            val py = .50f + (col-row/2f)*rowStepY/(table.height().takeIf { it > 1f } ?: 360f)
+            balls.add(Ball(px,py,0f,0f,order[k++]))
         }
     }
 
@@ -127,6 +137,20 @@ class PoolGameView(context: Context) : View(context) {
             paint.shader=RadialGradient(x-r*.39f,y-r*.47f,r*.42f,
                 intArrayOf(Color.argb(245,255,255,255),Color.argb(0,255,255,255)),null,Shader.TileMode.CLAMP)
             c.drawCircle(x-r*.3f,y-r*.34f,r*.34f,paint); paint.shader=null
+
+            // Broad softbox reflection and a thin bright rim give the balls a polished resin finish.
+            val shineSave=c.save()
+            c.clipPath(Path().apply { addCircle(x,y,r*.985f,Path.Direction.CW) })
+            paint.shader=LinearGradient(x-r*.52f,y-r*.8f,x+r*.28f,y+r*.72f,
+                intArrayOf(Color.argb(115,255,255,255),Color.argb(12,255,255,255),Color.TRANSPARENT),
+                floatArrayOf(0f,.42f,1f),Shader.TileMode.CLAMP)
+            c.drawOval(x-r*.72f,y-r*.88f,x+r*.08f,y+r*.72f,paint)
+            paint.shader=null
+            c.restoreToCount(shineSave)
+            paint.color=Color.argb(125,255,255,255); paint.style=Paint.Style.STROKE
+            paint.strokeWidth=max(1f,r*.035f)
+            c.drawArc(x-r*.91f,y-r*.91f,x+r*.91f,y+r*.91f,205f,115f,false,paint)
+            paint.style=Paint.Style.FILL
 
             if (b.number>0) {
                 paint.color=Color.WHITE; c.drawCircle(x,y,r*.41f,paint)
@@ -234,22 +258,34 @@ class PoolGameView(context: Context) : View(context) {
             b.x+=b.vx*dt; b.y+=b.vy*dt
             val friction=exp(-2.4f*dt); b.vx*=friction; b.vy*=friction
             if(hypot(b.vx,b.vy)<.003f){b.vx=0f;b.vy=0f}
-            val r=b.radius
-            if(b.x<r){b.x=r;b.vx=abs(b.vx)*.88f}; if(b.x>1-r){b.x=1-r;b.vx=-abs(b.vx)*.88f}
-            if(b.y<r){b.y=r;b.vy=abs(b.vy)*.88f}; if(b.y>1-r){b.y=1-r;b.vy=-abs(b.vy)*.88f}
-            for(p in pockets) if(hypot(b.x-p[0],b.y-p[1])<.035f) {
-                if(b.number==0){b.x=.24f;b.y=.5f;b.vx=0f;b.vy=0f;message="母球落袋：手中球";sound.startTone(ToneGenerator.TONE_PROP_NACK,180)} else { b.sunk=true; sound.startTone(ToneGenerator.TONE_PROP_ACK,130) }
+            val sxWall=table.width()/min(table.width(),table.height()).coerceAtLeast(1f)
+            val syWall=table.height()/min(table.width(),table.height()).coerceAtLeast(1f)
+            val rx=b.radius/sxWall; val ry=b.radius/syWall
+            if(b.x<rx){b.x=rx;b.vx=abs(b.vx)*.88f}; if(b.x>1-rx){b.x=1-rx;b.vx=-abs(b.vx)*.88f}
+            if(b.y<ry){b.y=ry;b.vy=abs(b.vy)*.88f}; if(b.y>1-ry){b.y=1-ry;b.vy=-abs(b.vy)*.88f}
+            val sxPocket=table.width()/min(table.width(),table.height()).coerceAtLeast(1f)
+            val syPocket=table.height()/min(table.width(),table.height()).coerceAtLeast(1f)
+            for(p in pockets) if(hypot((b.x-p[0])*sxPocket,(b.y-p[1])*syPocket)<.055f) {
+                if(b.number==0){b.x=.24f;b.y=.5f;b.vx=0f;b.vy=0f;message="母球落袋：手中球";sound.startTone(ToneGenerator.TONE_PROP_NACK,65)} else { b.sunk=true; sound.startTone(ToneGenerator.TONE_PROP_ACK,42) }
             }
             if(abs(b.vx)+abs(b.vy)>.001f) moving=true
         }
         for(i in active.indices) for(j in i+1 until active.size) {
             val a=active[i]; val b=active[j]; if(a.sunk||b.sunk) continue
-            val dx=b.x-a.x; val dy=b.y-a.y; val d=hypot(dx,dy); val minD=a.radius+b.radius
+            val sx=table.width()/min(table.width(),table.height()).coerceAtLeast(1f)
+            val sy=table.height()/min(table.width(),table.height()).coerceAtLeast(1f)
+            val dx=(b.x-a.x)*sx; val dy=(b.y-a.y)*sy
+            val d=hypot(dx,dy); val minD=a.radius+b.radius
             if(d<minD && d>.00001f) {
                 val nx=dx/d; val ny=dy/d; val overlap=minD-d
-                a.x-=nx*overlap*.5f; a.y-=ny*overlap*.5f; b.x+=nx*overlap*.5f; b.y+=ny*overlap*.5f
-                val rel=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny
-                if(rel>0f){a.vx-=rel*nx*.96f;a.vy-=rel*ny*.96f;b.vx+=rel*nx*.96f;b.vy+=rel*ny*.96f; sound.startTone(ToneGenerator.TONE_PROP_BEEP2,55)}
+                a.x-=nx*overlap*.5f/sx; a.y-=ny*overlap*.5f/sy
+                b.x+=nx*overlap*.5f/sx; b.y+=ny*overlap*.5f/sy
+                val rel=((a.vx-b.vx)*sx)*nx+((a.vy-b.vy)*sy)*ny
+                if(rel>0f){
+                    a.vx-=rel*nx*.96f/sx; a.vy-=rel*ny*.96f/sy
+                    b.vx+=rel*nx*.96f/sx; b.vy+=rel*ny*.96f/sy
+                    sound.startTone(ToneGenerator.TONE_PROP_ACK,38)
+                }
             }
         }
         return moving
@@ -260,7 +296,7 @@ class PoolGameView(context: Context) : View(context) {
         val cue=balls.firstOrNull{it.number==0 && !it.sunk} ?: return
         val len=hypot(dx,dy).coerceAtLeast(.001f)
         cue.vx=dx/len*(.65f+power*2.7f); cue.vy=dy/len*(.65f+power*2.7f)
-        sound.startTone(ToneGenerator.TONE_PROP_BEEP,90)
+        sound.startTone(ToneGenerator.TONE_PROP_ACK,48)
         playerTurn=false
         postDelayed({
             if(!isMoving()) aiShot() else aiThinking=true
