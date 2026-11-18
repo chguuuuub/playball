@@ -23,7 +23,7 @@ class PoolGameView(context: Context) : View(context) {
     private var widthF = 1f
     private var heightF = 1f
     private var aimX = 1f
-    private var aimY = = 0f
+    private var aimY = 0f
     private var power = 0.55f
     private var charging = false
     private var message = "拖动瞄准，松手击球"
