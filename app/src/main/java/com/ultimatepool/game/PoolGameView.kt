@@ -3,7 +3,8 @@ package com.ultimatepool.game
 import android.content.Context
 import android.graphics.*
 import android.media.AudioManager
-import android.media.ToneGenerator
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.*
@@ -21,7 +22,40 @@ private data class Ball(var x: Float, var y: Float, var vx: Float, var vy: Float
 
 class PoolGameView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sound = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+    private val clickSamples: ShortArray = makeClickSamples()
+    private val clickTrack = AudioTrack(
+        AudioManager.STREAM_MUSIC, 48000, AudioFormat.CHANNEL_OUT_MONO,
+        AudioFormat.ENCODING_PCM_16BIT, clickSamples.size * 2, AudioTrack.MODE_STATIC
+    ).apply { write(clickSamples, 0, clickSamples.size) }
+
+    private fun makeClickSamples(): ShortArray {
+        val rate = 48000
+        val count = (rate * 0.052f).toInt()
+        return ShortArray(count) { i ->
+            val t = i.toFloat() / rate
+            val attack = exp(-t * 105f)
+            val body = (sin(2.0 * PI * 1850.0 * t) * 0.48 +
+                sin(2.0 * PI * 1120.0 * t) * 0.30 +
+                sin(2.0 * PI * 2750.0 * t) * 0.12)
+            val noise = if (i < rate * 0.003f) {
+                // A tiny broadband transient creates the sharp initial "啪".
+                (kotlin.random.Random.nextFloat() * 2f - 1f) * 0.34
+            } else 0.0
+            val envelope = exp(-t * 76f)
+            ((body * envelope + noise * attack) * 11500.0)
+                .toInt().coerceIn(-32768, 32767).toShort()
+        }
+    }
+
+    private fun playClick() {
+        try {
+            if (clickTrack.playState == AudioTrack.PLAYSTATE_PLAYING) clickTrack.stop()
+            clickTrack.reloadStaticData()
+            clickTrack.play()
+        } catch (_: IllegalStateException) {
+            // Ignore transient audio-device interruptions; gameplay remains available.
+        }
+    }
     private val balls = mutableListOf<Ball>()
     private var widthF = 1f
     private var heightF = 1f
@@ -270,7 +304,7 @@ class PoolGameView(context: Context) : View(context) {
             val sxPocket=table.width()/min(table.width(),table.height()).coerceAtLeast(1f)
             val syPocket=table.height()/min(table.width(),table.height()).coerceAtLeast(1f)
             for(p in pockets) if(hypot((b.x-p[0])*sxPocket,(b.y-p[1])*syPocket)<.055f) {
-                if(b.number==0){b.x=.24f;b.y=.5f;b.vx=0f;b.vy=0f;message="母球落袋：手中球";sound.startTone(ToneGenerator.TONE_PROP_NACK,65)} else { b.sunk=true; sound.startTone(ToneGenerator.TONE_PROP_ACK,42) }
+                if(b.number==0){b.x=.24f;b.y=.5f;b.vx=0f;b.vy=0f;message="母球落袋：手中球";playClick()} else { b.sunk=true; playClick() }
             }
             if(abs(b.vx)+abs(b.vy)>.001f) moving=true
         }
@@ -288,7 +322,7 @@ class PoolGameView(context: Context) : View(context) {
                 if(rel>0f){
                     a.vx-=rel*nx*.96f/sx; a.vy-=rel*ny*.96f/sy
                     b.vx+=rel*nx*.96f/sx; b.vy+=rel*ny*.96f/sy
-                    sound.startTone(ToneGenerator.TONE_PROP_ACK,38)
+                    playClick()
                 }
             }
         }
@@ -300,7 +334,7 @@ class PoolGameView(context: Context) : View(context) {
         val cue=balls.firstOrNull{it.number==0 && !it.sunk} ?: return
         val len=hypot(dx,dy).coerceAtLeast(.001f)
         cue.vx=dx/len*(.65f+power*2.7f); cue.vy=dy/len*(.65f+power*2.7f)
-        sound.startTone(ToneGenerator.TONE_PROP_ACK,48)
+        playClick()
         playerTurn=false
         postDelayed({
             if(!isMoving()) aiShot() else aiThinking=true
