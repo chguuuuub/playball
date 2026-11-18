@@ -34,6 +34,8 @@ class PoolGameView(context: Context) : View(context) {
     private var aiThinking = false
     private var lastFrame = System.nanoTime()
     private val table = RectF()
+    private var rackWidth = 0f
+    private var rackHeight = 0f
     private val pockets = arrayOf(floatArrayOf(0f,0f),floatArrayOf(.5f,0f),floatArrayOf(1f,0f),floatArrayOf(0f,1f),floatArrayOf(.5f,1f),floatArrayOf(1f,1f))
 
     init { resetRack(); isFocusable = true }
@@ -44,6 +46,7 @@ class PoolGameView(context: Context) : View(context) {
         // Regulation-style 15-ball rack: five rows, equal ball spacing and 60-degree sides.
         // The 8-ball is centered; the two rear corners contain one solid and one stripe.
         val order = listOf(1,9,2,3,8,10,11,4,12,5,6,13,7,14,15)
+        rackWidth = table.width(); rackHeight = table.height()
         val minSide = min(table.width().takeIf { it > 1f } ?: 720f,
                           table.height().takeIf { it > 1f } ?: 360f)
         val radiusPx = minSide*.034f
@@ -64,6 +67,7 @@ class PoolGameView(context: Context) : View(context) {
         canvas.drawColor(Color.rgb(17,22,29))
         val mx = widthF*.09f; val my = heightF*.13f
         table.set(mx,my,widthF-mx,heightF-my)
+        if (rackWidth <= 1f || abs(rackWidth-table.width()) > 1f || abs(rackHeight-table.height()) > 1f) resetRack()
         drawRoom(canvas); drawTable(canvas); drawBalls(canvas); drawAim(canvas); drawHud(canvas)
         val now = System.nanoTime()
         val dt = ((now-lastFrame)/1e9).toFloat().coerceIn(0f,.025f)
