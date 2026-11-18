@@ -2,6 +2,8 @@ package com.ultimatepool.game
 
 import android.content.Context
 import android.graphics.*
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.*
@@ -10,15 +12,16 @@ private data class Ball(var x: Float, var y: Float, var vx: Float, var vy: Float
     val radius get() = 0.022f
     val color: Int get() = when(number) {
         0 -> Color.WHITE
-        1,9 -> Color.YELLOW; 2,10 -> Color.rgb(35,85,210); 3,11 -> Color.RED
-        4,12 -> Color.rgb(125,55,170); 5,13 -> Color.rgb(245,120,25)
-        6,14 -> Color.rgb(30,140,65); 7,15 -> Color.rgb(125,25,35)
+        1,9 -> Color.rgb(255,220,0); 2,10 -> Color.rgb(0,92,255); 3,11 -> Color.rgb(255,18,28)
+        4,12 -> Color.rgb(180,35,235); 5,13 -> Color.rgb(255,105,0)
+        6,14 -> Color.rgb(0,205,72); 7,15 -> Color.rgb(155,8,28)
         else -> Color.BLACK
     }
 }
 
 class PoolGameView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val sound = ToneGenerator(AudioManager.STREAM_MUSIC, 78)
     private val balls = mutableListOf<Ball>()
     private var widthF = 1f
     private var heightF = 1f
@@ -63,19 +66,23 @@ class PoolGameView(context: Context) : View(context) {
     private fun drawRoom(c: Canvas) {
         paint.shader=LinearGradient(0f,0f,0f,heightF,Color.rgb(42,48,59),Color.rgb(9,12,17),Shader.TileMode.CLAMP)
         c.drawRect(0f,0f,widthF,heightF,paint); paint.shader=null
-        paint.color=Color.rgb(220,185,115); c.drawRoundRect(table.left-18,table.top-18,table.right+18,table.bottom+18,28f,28f,paint)
-        paint.color=Color.rgb(80,48,28); c.drawRoundRect(table.left-12,table.top-12,table.right+12,table.bottom+12,22f,22f,paint)
+        paint.shader=LinearGradient(table.left,table.top,table.right,table.bottom,Color.rgb(255,211,112),Color.rgb(154,75,24),Shader.TileMode.CLAMP)
+        c.drawRoundRect(table.left-22,table.top-22,table.right+22,table.bottom+22,30f,30f,paint); paint.shader=null
+        paint.color=Color.rgb(255,231,166); c.drawRoundRect(table.left-15,table.top-15,table.right+15,table.bottom+15,24f,24f,paint)
+        paint.color=Color.rgb(104,48,20); c.drawRoundRect(table.left-10,table.top-10,table.right+10,table.bottom+10,18f,18f,paint)
     }
 
     private fun drawTable(c: Canvas) {
-        paint.shader=LinearGradient(table.left,table.top,table.right,table.bottom,Color.rgb(29,160,101),Color.rgb(5,91,61),Shader.TileMode.CLAMP)
+        paint.shader=LinearGradient(table.left,table.top,table.right,table.bottom,Color.rgb(20,218,132),Color.rgb(0,112,70),Shader.TileMode.CLAMP)
         c.drawRoundRect(table,12f,12f,paint); paint.shader=null
-        paint.color=Color.rgb(5,24,18); paint.style=Paint.Style.STROKE; paint.strokeWidth=2f
+        paint.color=Color.rgb(150,255,210); paint.style=Paint.Style.STROKE; paint.strokeWidth=3f
         c.drawRoundRect(table,12f,12f,paint); paint.style=Paint.Style.FILL
         for(p in pockets) {
             val x=table.left+p[0]*table.width(); val y=table.top+p[1]*table.height()
-            paint.color=Color.rgb(4,5,7); c.drawCircle(x,y,ballPx()*1.75f,paint)
-            paint.color=Color.argb(90,0,0,0); c.drawCircle(x,y,ballPx()*1.95f,paint)
+            paint.color=Color.rgb(2,4,7); c.drawCircle(x,y,ballPx()*1.82f,paint)
+            paint.color=Color.argb(150,0,0,0); c.drawCircle(x,y,ballPx()*2.02f,paint)
+            paint.color=Color.argb(95,255,255,255); paint.style=Paint.Style.STROKE; paint.strokeWidth=2f
+            c.drawCircle(x,y,ballPx()*1.82f,paint); paint.style=Paint.Style.FILL
         }
         paint.color=Color.argb(110,230,220,170); paint.strokeWidth=1f
         c.drawLine(table.left+table.width()*.25f,table.top,table.left+table.width()*.25f,table.bottom,paint)
@@ -137,29 +144,55 @@ class PoolGameView(context: Context) : View(context) {
         val x=toX(cue.x); val y=toY(cue.y)
         val len=hypot(aimX,aimY).coerceAtLeast(.001f)
         val ux=aimX/len; val uy=aimY/len
-        val lineLen=table.width()*.36f
-        val ex=x+ux*lineLen; val ey=y+uy*lineLen
+        val maxLen=table.width()*.72f
+        val rayEndX=x+ux*maxLen; val rayEndY=y+uy*maxLen
 
-        // Bright directional dashed guide with a clear arrow head.
-        paint.color=Color.argb(235,255,255,255); paint.strokeWidth=3.2f
-        paint.pathEffect=DashPathEffect(floatArrayOf(15f,10f),0f)
-        c.drawLine(x+ux*ballPx(),y+uy*ballPx(),ex,ey,paint)
-        paint.pathEffect=null
-        val ah=ballPx()*.78f
-        val perpX=-uy; val perpY=ux
-        val arrow=Path().apply {
-            moveTo(ex,ey)
-            lineTo(ex-ux*ah+perpX*ah*.58f,ey-uy*ah+perpY*ah*.58f)
-            lineTo(ex-ux*ah-perpX*ah*.58f,ey-uy*ah-perpY*ah*.58f)
-            close()
+        // Find the first object ball intersected by the cue-ball centre ray.
+        var hit: Ball? = null
+        var hitT = Float.MAX_VALUE
+        for (b in balls) {
+            if (b.number==0 || b.sunk) continue
+            val bx=toX(b.x)-x; val by=toY(b.y)-y
+            val projection=bx*ux+by*uy
+            if(projection<=0f) continue
+            val perpendicular2=bx*bx+by*by-projection*projection
+            val combined=ballPx()*2f
+            if(perpendicular2<=combined*combined) {
+                val t=projection-sqrt(max(0f,combined*combined-perpendicular2))
+                if(t<hitT) { hitT=t; hit=b }
+            }
         }
-        paint.color=Color.rgb(255,238,120); c.drawPath(arrow,paint)
+        val cueEndX=if(hit!=null) x+ux*hitT else rayEndX
+        val cueEndY=if(hit!=null) y+uy*hitT else rayEndY
 
-        // Cue stick follows the opposite direction.
+        // Cue-ball path: bright white dashed line ending at the predicted contact.
+        paint.color=Color.WHITE; paint.strokeWidth=4f
+        paint.pathEffect=DashPathEffect(floatArrayOf(17f,9f),0f)
+        c.drawLine(x+ux*ballPx(),y+uy*ballPx(),cueEndX,cueEndY,paint)
+        paint.pathEffect=null
+        paint.color=Color.rgb(255,235,70); c.drawCircle(cueEndX,cueEndY,ballPx()*.18f,paint)
+
+        // Object-ball continuation: orange/yellow dashed trajectory after impact.
+        if(hit!=null) {
+            val hx=toX(hit.x); val hy=toY(hit.y)
+            val nx=hx-x; val ny=hy-y; val nd=hypot(nx,ny).coerceAtLeast(.001f)
+            val ox=nx/nd; val oy=ny/nd
+            val objectEndX=hx+ox*table.width()*.48f
+            val objectEndY=hy+oy*table.width()*.48f
+            paint.color=Color.rgb(255,174,35); paint.strokeWidth=3.5f
+            paint.pathEffect=DashPathEffect(floatArrayOf(11f,8f),0f)
+            c.drawLine(hx+ox*ballPx(),hy+oy*ballPx(),objectEndX,objectEndY,paint)
+            paint.pathEffect=null
+            paint.color=Color.rgb(255,190,45); c.drawCircle(hx,hy,ballPx()*1.25f,paint)
+            paint.color=Color.WHITE; paint.style=Paint.Style.STROKE; paint.strokeWidth=2f
+            c.drawCircle(hx,hy,ballPx()*1.25f,paint); paint.style=Paint.Style.FILL
+        }
+
+        // Cue stick is positioned behind the cue ball.
         val back=ballPx()*2.7f+power*table.width()*.12f
-        paint.color=Color.rgb(245,190,112); paint.strokeWidth=ballPx()*.34f
+        paint.color=Color.rgb(255,194,105); paint.strokeWidth=ballPx()*.38f
         c.drawLine(x-ux*back,y-uy*back,x-ux*ballPx()*1.15f,y-uy*ballPx()*1.15f,paint)
-        paint.color=Color.argb(210,255,245,220); paint.strokeWidth=2f
+        paint.color=Color.rgb(255,245,215); paint.strokeWidth=2.5f
         c.drawLine(x-ux*back,y-uy*back,x-ux*back*.82f,y-uy*back*.82f,paint)
     }
 
@@ -205,7 +238,7 @@ class PoolGameView(context: Context) : View(context) {
             if(b.x<r){b.x=r;b.vx=abs(b.vx)*.88f}; if(b.x>1-r){b.x=1-r;b.vx=-abs(b.vx)*.88f}
             if(b.y<r){b.y=r;b.vy=abs(b.vy)*.88f}; if(b.y>1-r){b.y=1-r;b.vy=-abs(b.vy)*.88f}
             for(p in pockets) if(hypot(b.x-p[0],b.y-p[1])<.035f) {
-                if(b.number==0){b.x=.24f;b.y=.5f;b.vx=0f;b.vy=0f;message="母球落袋：手中球"} else b.sunk=true
+                if(b.number==0){b.x=.24f;b.y=.5f;b.vx=0f;b.vy=0f;message="母球落袋：手中球";sound.startTone(ToneGenerator.TONE_PROP_NACK,180)} else { b.sunk=true; sound.startTone(ToneGenerator.TONE_PROP_ACK,130) }
             }
             if(abs(b.vx)+abs(b.vy)>.001f) moving=true
         }
@@ -216,7 +249,7 @@ class PoolGameView(context: Context) : View(context) {
                 val nx=dx/d; val ny=dy/d; val overlap=minD-d
                 a.x-=nx*overlap*.5f; a.y-=ny*overlap*.5f; b.x+=nx*overlap*.5f; b.y+=ny*overlap*.5f
                 val rel=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny
-                if(rel>0f){a.vx-=rel*nx*.96f;a.vy-=rel*ny*.96f;b.vx+=rel*nx*.96f;b.vy+=rel*ny*.96f}
+                if(rel>0f){a.vx-=rel*nx*.96f;a.vy-=rel*ny*.96f;b.vx+=rel*nx*.96f;b.vy+=rel*ny*.96f; sound.startTone(ToneGenerator.TONE_PROP_BEEP2,55)}
             }
         }
         return moving
@@ -227,6 +260,7 @@ class PoolGameView(context: Context) : View(context) {
         val cue=balls.firstOrNull{it.number==0 && !it.sunk} ?: return
         val len=hypot(dx,dy).coerceAtLeast(.001f)
         cue.vx=dx/len*(.65f+power*2.7f); cue.vy=dy/len*(.65f+power*2.7f)
+        sound.startTone(ToneGenerator.TONE_PROP_BEEP,90)
         playerTurn=false
         postDelayed({
             if(!isMoving()) aiShot() else aiThinking=true
@@ -248,16 +282,25 @@ class PoolGameView(context: Context) : View(context) {
         val cx=toX(cue.x); val cy=toY(cue.y)
         when(event.action) {
             MotionEvent.ACTION_DOWN -> if(playerTurn && !isMoving()) {
-                charging=true; aimX=(cx-event.x)/table.width(); aimY=(cy-event.y)/table.height(); return true
+                charging=true
+                val dx=(event.x-cx)/table.width()
+                val dy=(event.y-cy)/table.height()
+                if(hypot(dx,dy)>.012f) { aimX=dx; aimY=dy }
+                power=(hypot(event.x-cx,event.y-cy)/(table.width()*.52f)).coerceIn(.08f,1f)
+                invalidate(); return true
             }
             MotionEvent.ACTION_MOVE -> if(charging) {
-                val dx=(cx-event.x)/table.width(); val dy=(cy-event.y)/table.height()
-                val len=hypot(dx,dy).coerceAtLeast(.001f); aimX=dx/len; aimY=dy/len
-                power=(hypot(event.x-cx,event.y-cy)/(table.width()*.45f)).coerceIn(.08f,1f); invalidate()
+                // Finger position on the table defines the exact aim point; radial distance controls power.
+                val dx=(event.x-cx)/table.width()
+                val dy=(event.y-cy)/table.height()
+                if(hypot(dx,dy)>.012f) { aimX=dx; aimY=dy }
+                power=(hypot(event.x-cx,event.y-cy)/(table.width()*.52f)).coerceIn(.08f,1f)
+                invalidate()
             }
             MotionEvent.ACTION_UP -> if(charging) {
                 charging=false; shoot(aimX,aimY); invalidate(); return true
             }
+            MotionEvent.ACTION_CANCEL -> { charging=false; invalidate(); return true }
         }
         return true
     }
